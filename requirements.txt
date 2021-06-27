@@ -6,7 +6,6 @@ certifi==2021.5.30
 chardet==4.0.0
 cloudpickle==1.6.0
 cycler==0.10.0
-dataclasses==0.8
 google-auth==1.31.0
 google-auth-oauthlib==0.4.4
 grpcio==1.38.0
@@ -38,9 +37,9 @@ stable-baselines3==1.0
 tensorboard==2.5.0
 tensorboard-data-server==0.6.1
 tensorboard-plugin-wit==1.8.0
-torch==1.8.1+cu102
+torch==1.8.1
 torchaudio==0.8.1
-torchvision==0.9.1+cu102
+torchvision==0.9.1
 typing-extensions==3.10.0.0
 urllib3==1.26.5
 Werkzeug==2.0.1

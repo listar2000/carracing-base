@@ -54,7 +54,6 @@ FPS = 50  # Frames per second
 ZOOM = 2.7  # Camera zoom
 ZOOM_FOLLOW = True  # Set to False for fixed view (don't use zoom)
 
-
 TRACK_DETAIL_STEP = 21 / SCALE
 TRACK_TURN_RATE = 0.31
 TRACK_WIDTH = 40 / SCALE
@@ -109,6 +108,7 @@ class FrictionDetector(contactListener):
                 self.env.tile_visited_count += 1
         else:
             obj.tiles.remove(tile)
+
 
 class CarRacing(gym.Env, EzPickle):
     metadata = {
@@ -247,7 +247,7 @@ class CarRacing(gym.Env, EzPickle):
             if i == 0:
                 return False  # Failed
             pass_through_start = (
-                track[i][0] > self.start_alpha and track[i - 1][0] <= self.start_alpha
+                    track[i][0] > self.start_alpha and track[i - 1][0] <= self.start_alpha
             )
             if pass_through_start and i2 == -1:
                 i2 = i
@@ -259,7 +259,7 @@ class CarRacing(gym.Env, EzPickle):
         assert i1 != -1
         assert i2 != -1
 
-        track = track[i1 : i2 - 1]
+        track = track[i1: i2 - 1]
 
         first_beta = track[0][1]
         first_perp_x = math.cos(first_beta)
@@ -612,6 +612,7 @@ if __name__ == "__main__":
 
     a = np.array([0.0, 0.0, 0.0])
 
+
     def key_press(k, mod):
         global restart
         if k == 0xFF0D:
@@ -625,6 +626,7 @@ if __name__ == "__main__":
         if k == key.DOWN:
             a[2] = +0.8  # set 1.0 for wheels to block to zero rotation
 
+
     def key_release(k, mod):
         if k == key.LEFT and a[0] == -1.0:
             a[0] = 0
@@ -634,6 +636,7 @@ if __name__ == "__main__":
             a[1] = 0
         if k == key.DOWN:
             a[2] = 0
+
 
     env = CarRacing()
     env.render()
