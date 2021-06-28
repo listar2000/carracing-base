@@ -187,6 +187,8 @@ class env_wrapper(gym.Env):
             done = True
 
         info["reward sum"] = reward_sum
+        if self.use_discrete_action_space:
+            info["parsed action"] = action
 
         return next_state, reward_sum, done, info
 
