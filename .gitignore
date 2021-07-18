@@ -1,7 +1,6 @@
 output/*
 !output/demo/
 agents/*
-*.zip
 .idea/*
 .vscode/*
 __pycache__/*
