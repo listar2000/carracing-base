@@ -1,0 +1,9 @@
+trial 1:
+# steering: 10
+# throttle: 3
+# brake: 2
+
+trial 2:
+# steering: 5
+# throttle: 3
+# brake: 2

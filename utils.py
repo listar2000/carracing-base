@@ -88,6 +88,24 @@ A wrapper class for the carracing-v0 environment that supports frame stacking,
 skipping and early-stopping (see `self.negative_reward_counter` and related codes).
 """
 
+DEFAULT_AC_SPACE = [
+    (-1, 1, 0.2), (0, 1, 0.2), (1, 1, 0.2), #           Action Space Structure
+    (-1, 1,   0), (0, 1,   0), (1, 1,   0), #        (Steering Wheel, Gas, Break)
+    (-1, 0, 0.2), (0, 0, 0.2), (1, 0, 0.2), # Range        -1~1       0~1   0~1
+    (-1, 0,   0), (0, 0,   0), (1, 0,   0)
+]
+
+AC_SPACE_V2 = [
+    (-1, 0.5, 0.2), (0, 0.5, 0.2), (1, 0.5, 0.2), #           Action Space Structure
+    (-1, 0.5,   0), (0, 0.5,   0), (1, 0.5,   0), #        (Steering Wheel, Gas, Break)
+    (-1, 0, 0.2), (0, 0, 0.2), (1, 0, 0.2), # Range        -1~1       0~1   0~1
+    (-1, 0,   0), (0, 0,   0), (1, 0,   0),
+    (0.5,0.5, 0.2), (0.5,0, 0.2), (0.5,0.5, 0),
+    (0.5,0,0), (-0.5,0.5, 0.2), (-0.5,0, 0.2), 
+    (-0.5,0.5, 0), (-0.5,0,0)
+]
+
+ACTION_TYPES = ['CONTINUOUS', 'DISCRETE', 'MULTI_DISCRETE']
 
 class env_wrapper(gym.Env):
 
@@ -95,26 +113,34 @@ class env_wrapper(gym.Env):
                  frame_stack_num: int,
                  skip_frame: int = TRAINING_CONFIG.get("skip_frame", 0),
                  done_threshold: int = TRAINING_CONFIG.get("done_threshold", 100),
-                 use_discrete_action_space: bool = False,
+                 action_space_type: str = "continuous",
                  num_discrete_steering: int = 10,
                  num_discrete_throttle: int = 10,
-                 num_discrete_brake=2,
+                 num_discrete_brake: int = 2,
+                 action_space: List = DEFAULT_AC_SPACE,
+                 is_training: bool = True
                  ) -> None:
+        
+        self.is_training = is_training
+        self.action_space_type = action_space_type.upper()
+        assert self.action_space_type in ACTION_TYPES
 
         self.frame_stack_num = frame_stack_num
         self.skip_frame = skip_frame
-        self.done_threshold = done_threshold
+        self.done_threshold = done_threshold * 3 if not self.is_training else done_threshold
 
         self.env = env
         self.state_deque = None
-        self.use_discrete_action_space = use_discrete_action_space
         self.discrete_steerings = np.linspace(-1, 1, num_discrete_steering)
         self.discrete_gases = np.linspace(0, 1, num_discrete_throttle)
         self.discrete_brakes = np.linspace(0, 1, num_discrete_brake)
-        if use_discrete_action_space:
+        if self.action_space_type == 'MULTI_DISCRETE':
             self.action_space = MultiDiscrete([len(self.discrete_steerings),
                                                len(self.discrete_gases),
                                                len(self.discrete_brakes)])
+        elif self.action_space_type == 'DISCRETE':
+            self.action_space = Discrete(len(action_space))
+            self._action_space = action_space
         else:
             self.action_space = env.action_space
         self.observation_space = spaces.Box(
@@ -126,16 +152,24 @@ class env_wrapper(gym.Env):
         # for early stopping (better for training)
         self.negative_reward_counter = 0
         self.step_counter = 0
+        self.episode_counter = 0
+        self.total_reward = 0
 
         self.should_render = False
+        self.every_render = None
 
     def discrete_to_continue_action(self, action: np.ndarray) -> List:
-        steering_index, gas_index, brake_index = action
-        return [self.discrete_steerings[steering_index],
-                self.discrete_gases[gas_index],
-                self.discrete_brakes[brake_index]]
+        if isinstance(action, np.ndarray) and len(action) == 3: # multi discrete case
+            steering_index, gas_index, brake_index = action
+            return [self.discrete_steerings[steering_index],
+                    self.discrete_gases[gas_index],
+                    self.discrete_brakes[brake_index]]
+        else: # discrete case
+            return self._action_space[action]
 
-    def set_render(self, render: bool):
+    def set_render(self, render: bool=False, every=None):
+        if every is not None:
+            self.every_render = every
         self.should_render = render
 
     # return the initial state and initialize the state deque as well
@@ -147,6 +181,7 @@ class env_wrapper(gym.Env):
 
         self.step_counter = 0
         self.negative_reward_counter = 0
+        self.total_reward = 0
 
         return stack_states(np.array(self.state_deque))
 
@@ -156,7 +191,11 @@ class env_wrapper(gym.Env):
         done = False
         info = dict()
 
-        if self.use_discrete_action_space:
+        should_render = self.should_render
+        if self.every_render is not None:
+            should_render = self.episode_counter % self.every_render == 0
+
+        if self.action_space_type != 'CONTINUOUS':
             action = self.discrete_to_continue_action(action=action)
 
         for _ in range(self.skip_frame + 1):
@@ -165,13 +204,18 @@ class env_wrapper(gym.Env):
             next_state = preprocess_state(next_state)
             self.state_deque.append(next_state)
 
-            if self.should_render:
+            if should_render:
                 self.env.render()
 
             reward_sum += reward
             if done:
                 break
-
+        
+        # amplify reward for using full gas
+        if self.is_training and action[1] > 0.9 and action[2] == 0:
+            reward_sum *= 1.5
+        
+        self.total_reward += reward_sum
         next_state = stack_states(np.array(self.state_deque))
 
         # update the counter
@@ -182,13 +226,17 @@ class env_wrapper(gym.Env):
         else:
             self.negative_reward_counter += 1
 
-        if self.negative_reward_counter > self.done_threshold:
+        # the total reward penalty is not applied during testing
+        if self.negative_reward_counter > self.done_threshold or (self.total_reward < 0 and self.is_training):
             info["done by early stopping"] = True
             done = True
 
         info["reward sum"] = reward_sum
-        if self.use_discrete_action_space:
+        if self.action_space_type != 'CONTINUOUS':
             info["parsed action"] = action
+
+        if done:
+            self.episode_counter += 1
 
         return next_state, reward_sum, done, info
 
@@ -207,12 +255,23 @@ class LoggingCallback(BaseCallback):
         super().__init__(verbose)
         self.init_callback(model=model)
 
+    # def _on_step(self) -> bool:
+    #     print(
+    #         f"""
+    #         Step = {self.num_timesteps}
+    #         Current Reward = {self.locals['rewards']}
+    #         Current Actions = {self.locals['actions']} -> {self.locals['clipped_actions']}
+    #         debug info = {self.locals['infos']}
+    #         """
+    #     )
+    #     return True
+    
     def _on_step(self) -> bool:
         print(
             f"""
             Step = {self.num_timesteps}
-            Current Reward = {self.locals['rewards']}
-            Current Actions = {self.locals['actions']} -> {self.locals['clipped_actions']}
+            Current Reward = {self.locals['reward']}
+            Current Actions = {self.locals['action']}
             debug info = {self.locals['infos']}
             """
         )
